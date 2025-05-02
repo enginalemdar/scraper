@@ -1,0 +1,22 @@
+{
+  "name": "n8n-puppeteer-scraper-agent",
+  "version": "1.0.0",
+  "description": "A simple Node.js Express application using Puppeteer to scrape website text content for n8n integration.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "keywords": [
+    "n8n",
+    "puppeteer",
+    "scraper",
+    "web scraping",
+    "automation"
+  ],
+  "author": "Your Name/Organization",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^22.0.0"
+  }
+}
