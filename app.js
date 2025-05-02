@@ -1,19 +1,22 @@
+// Gerekli modülleri içe aktar
 const express = require("express");
 const puppeteer = require("puppeteer");
 
+// Express uygulamasını başlat
 const app = express();
-app.use(express.json()); // Gelen JSON istek gövdelerini ayrıştırmak için middleware
+// JSON formatındaki istek gövdelerini ayrıştırmak için middleware kullan
+app.use(express.json());
 
-// Sunucu ortamları için önerilen argümanlarla tarayıcıyı başlatmaya yardımcı fonksiyon
+// Sunucu ortamları için önerilen argümanlarla Puppeteer tarayıcısını başlatan yardımcı fonksiyon
+// Bu fonksiyon, Puppeteer'ın Docker veya Railway gibi ortamlarda stabil çalışmasına yardımcı olur.
 async function launchBrowser() {
-    // Railway veya benzeri platformlarda çalışmak için gerekli argümanlar
     const args = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage', // Özellikle Docker ortamlarında önemli
-        '--disable-gpu', // Sunucu ortamlarında genellikle GPU olmaz
-        '--no-zygote',
-        '--single-process', // Daha az kaynak kullanımı için bazen gerekli
+        '--no-sandbox', // Güvenlik sandbox'ını devre dışı bırak (genellikle server ortamlarında gerekir)
+        '--disable-setuid-sandbox', // setuid sandbox'ını devre dışı bırak
+        '--disable-dev-shm-usage', // /dev/shm kullanımını devre dışı bırak (Docker'da yaygın sorunları önler)
+        '--disable-gpu', // GPU hızlandırmasını devre dışı bırak (sunucu ortamlarında GPU genellikle olmaz)
+        '--no-zygote', // Zygote sürecini devre dışı bırak (bazı ortamlarda başlatma sorunlarını çözebilir)
+        '--single-process', // Tek süreç modunu zorla (kaynakları azaltabilir, ancak stabiliteyi etkileyebilir)
         '--autoplay-policy=user-gesture-required',
         '--disable-background-networking',
         '--disable-background-timer-throttling',
@@ -31,6 +34,7 @@ async function launchBrowser() {
         '--disable-print-preview',
         '--disable-prompt-on-repost',
         '--disable-renderer-backgrounding',
+        '--disable-setuid-sandbox',
         '--disable-speech-api',
         '--disable-sync',
         '--disable-web-security', // Dikkatli kullanılmalı, güvenlik riski taşıyabilir
@@ -47,77 +51,131 @@ async function launchBrowser() {
     ];
 
     return puppeteer.launch({
-        headless: "new", // Daha yeni Puppeteer versiyonları için "new" kullanın
+        headless: "new", // Daha yeni Puppeteer versiyonları için önerilen headless modu
         args: args
     });
 }
 
-// Kazıma (scrape) endpoint'i
+// Web kazıma (scrape) işlemini yapacak POST endpoint'i
 app.post("/scrape", async (req, res) => {
-    // İstek gövdesinden 'url' bilgisini al
-    const { url } = req.body; // { "url": "hedef_site_url" } bekleniyor
+    // İstek gövdesinden 'url' parametresini al
+    const { url } = req.body; // Örnek JSON gövdesi: { "url": "hedef_site_url" }
 
+    // URL parametresinin sağlanıp sağlanmadığını kontrol et
     if (!url) {
-        // 'url' bilgisi yoksa hata döndür
-        return res.status(400).json({ error: true, message: "İstek gövdesinde 'url' bulunamadı." });
+        // URL yoksa 400 Bad Request hatası döndür
+        return res.status(400).json({ error: true, message: "İstek gövdesinde 'url' parametresi bulunamadı." });
     }
 
-    let browser;
+    let browser; // Puppeteer tarayıcı nesnesi için değişken
     try {
         // Puppeteer tarayıcısını başlat
         browser = await launchBrowser();
+        // Yeni bir tarayıcı sayfası aç
         const page = await browser.newPage();
 
-        // İsteğe bağlı: Gerçek bir tarayıcı gibi görünmek için User-Agent ayarla
+        // İsteğe bağlı: Sayfayı gerçek bir tarayıcı gibi göstermek için User-Agent ve Viewport ayarla
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36');
-        // İsteğe bağlı: Pencere boyutunu ayarla
         await page.setViewport({ width: 1280, height: 720 });
 
         console.log(`🔍 Hedefe gidiliyor: ${url}`);
 
-        // URL'ye git ve sayfanın yüklenmesini bekle
-        // networkidle2: Son 500ms içinde 2'den fazla ağ bağlantısı olmadığında tetiklenir
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 }); // 45 saniye timeout
+        // Belirtilen URL'ye git. Sayfanın tam olarak yüklendiğinden emin olmak için bekleme stratejisi kullan.
+        // networkidle2: Son 500 milisaniye içinde 2'den fazla ağ bağlantısı yoksa tetiklenir.
+        // timeout: Sayfa yüklenmezse veya bekleme süresi aşılırsa hata fırlatır (45 saniye).
+        await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
 
-        // Sayfanın tüm görünür metin içeriğini al
-        // Daha sonra, sadece ana içerik alanlarını seçmek için bu kısmı iyileştirebilirsiniz
-        const pageTextContent = await page.evaluate(() => {
-           // Tüm body metnini al
-           let text = document.body.innerText;
+        // Sayfanın hem metin içeriğini al hem de ilgili linkleri bul ve filtrele
+        const result = await page.evaluate(() => {
+           // Sayfanın body kısmının tüm görünür metin içeriğini al
+           const text = document.body.innerText;
 
-           // İsteğe bağlı: Yaygın betik veya stil bloklarını temizleme
-           // Bu çok basit bir temizliktir ve yetersiz kalabilir
-           text = text.replace(/<script[^>]*>.*?<\/script>/gis, '');
-           text = text.replace(/<style[^>]*>.*?<\/style>/gis, '');
+           const relevantLinks = []; // İlgili linkleri tutacak dizi
+           // Sayfadaki href özniteliği olan tüm link (a) elementlerini bul
+           document.querySelectorAll('a[href]').forEach(a => {
+               const href = a.getAttribute('href'); // Linkin href özniteliğini al
+               const linkText = a.innerText ? a.innerText.trim() : ''; // Linkin görünen metnini al (varsa)
 
-           return text;
+               // Linkin geçerli bir URL olduğundan ve aynı domainde (site içinde) olduğundan emin ol
+               try {
+                   // Göreli (relative) URL'leri geçerli sayfa URL'sine göre tam (absolute) URL'ye çevir
+                   const absoluteUrl = new URL(href, window.location.href).href;
+
+                   // Aynı sayfadaki çapa (anchor) linkleri (#) veya boş linkleri filtrele
+                   // Ayrıca sadece path içeren linkleri de filtreleyebiliriz (örn: / gibi)
+                   if (absoluteUrl !== window.location.href + '#' &&
+                       absoluteUrl !== window.location.href &&
+                       absoluteUrl !== window.location.href + '/' &&
+                       absoluteUrl !== '' &&
+                       !absoluteUrl.endsWith('#')) // # ile bitenleri de filtrele
+                    {
+
+                       // Linkin URL'sinde veya metninde belirli anahtar kelimeler içerip içermediğini kontrol et
+                       // Bu, ilgili bölümlere (hakkımızda, fiyatlar vb.) giden linkleri bulmamıza yardımcı olur.
+                       const lowerHref = absoluteUrl.toLowerCase();
+                       const lowerLinkText = linkText.toLowerCase();
+
+                       const keywords = [
+                           'about', 'team', 'pricing', 'product', 'solution', 'hakkimizda',
+                           'ekip', 'fiyatlar', 'urunler', 'cozumler', 'platform', 'contact',
+                           'iletisim', 'biz-kimiz', 'servisler', 'kurucu', 'founder', 'yonetim'
+                           // AI'ın aradığı bilgilere ulaşmasını sağlayacak daha fazla kelime ekleyebilirsiniz
+                       ];
+
+                       // URL veya link metni anahtar kelimelerden birini içeriyorsa ilgili kabul et
+                       const isRelevant = keywords.some(keyword =>
+                           lowerHref.includes(keyword) || lowerLinkText.includes(keyword)
+                       );
+
+                       // Link ilgiliyse listeye ekle
+                       if (isRelevant) {
+                           relevantLinks.push({ url: absoluteUrl, text: linkText });
+                       }
+                   }
+               } catch (e) {
+                   // Geçersiz URL formatları için hata yakalama (URL sınıfı hatası vb.)
+                   console.error("Geçersiz veya hatalı URL formatı:", href, e.message);
+               }
+           });
+
+           // Aynı URL'ye sahip yinelenen linkleri listeden kaldır (URL'ye göre benzersizleştir)
+           const uniqueLinks = Array.from(new Map(relevantLinks.map(item => [item.url, item])).values());
+
+           // Sayfanın metin içeriği ve ilgili linkler listesini döndür
+           return { text: text, relevantLinks: uniqueLinks };
         });
 
-
-        console.log(`✅ İçerik başarıyla çekildi: ${url}`);
-        // Çekilen metin içeriğini HTTP yanıtı olarak geri gönder
-        res.json({ success: true, url: url, content: pageTextContent });
+        // İşlem başarılı olduysa konsola log yaz ve yanıtı gönder
+        console.log(`✅ İçerik başarıyla çekildi ve ${result.relevantLinks.length} ilgili link bulundu: ${url}`);
+        res.json({
+            success: true, // Başarı durumu
+            url: url, // Kazınan URL
+            content: result.text, // Sayfanın metin içeriği
+            relevantLinks: result.relevantLinks // Bulunan ilgili linkler listesi
+        });
 
     } catch (error) {
+        // Herhangi bir hata oluşursa (sayfa yüklenememesi, timeout vb.)
         console.error(`"${url}" adresi için kazıma hatası:`, error);
-        // Hata durumunda hata yanıtı gönder
+        // Hata yanıtı gönder (500 Internal Server Error)
         res.status(500).json({
-            error: true,
-            message: `"${url}" adresi kazınamadı.`,
-            detail: error.message // Hata detayını da gönderebilirsiniz
+            error: true, // Hata durumu
+            message: `"${url}" adresi kazınamadı.`, // Kullanıcıya gösterilecek mesaj
+            detail: error.message // Hatanın teknik detayı
         });
     } finally {
-        // Tarayıcının hata olsa bile kapanmasını sağla
+        // Tarayıcı nesnesi varsa (başlatılmışsa), işlem başarılı olsa da hata olsa da kapat
         if (browser) {
             await browser.close();
         }
     }
 });
 
-// Temel sağlık kontrol endpoint'i
+// Uygulamanın ayakta olduğunu kontrol etmek için basit bir GET endpoint'i
 app.get("/", (req, res) => {
     res.send("✅ Puppeteer Scraper Agent çalışıyor. { \"url\": \"...\" } payload ile /scrape adresine POST isteği gönderin.");
 });
 
-const port = process.env.PORT || 3000; // Ortam değişkeninden veya varsayılan olarak 3000 portunu kullan
+// Uygulamayı dinlemeye başla. Portu ortam değişkeninden veya varsayılan olarak 3000 olarak al.
+const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`✅ Scraper agent ${port} portunda yayında.`));
