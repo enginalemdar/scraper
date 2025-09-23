@@ -13,15 +13,18 @@ const app = express();
 app.use(express.json());
 
 // Puppeteer browser başlat
-async function launchBrowser() {
-  const args = ["--no-sandbox", "--disable-setuid-sandbox"];
-  if (process.env.PROXY) {
-    args.push(`--proxy-server=${process.env.PROXY}`);
-  }
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import chromium from "@sparticuz/chromium";
 
+puppeteer.use(StealthPlugin());
+
+async function launchBrowser() {
   return await puppeteer.launch({
-    headless: true,
-    args
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(), // Railway’de gerekli
+    headless: chromium.headless,
   });
 }
 
