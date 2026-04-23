@@ -1,27 +1,27 @@
 {
-  "name": "n8n-puppeteer-scraper-agent",
-  "version": "1.0.0",
-  "description": "A simple Node.js Express application using Puppeteer to scrape website text content for n8n integration.",
-  "main": "app.js",
+  "name": "scraper-worker",
+  "version": "1.1.0",
+  "description": "Cloudflare Worker scraper API using Browser Rendering",
+  "type": "module",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node app.js"
+    "dev": "wrangler dev --remote",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run"
   },
   "keywords": [
-    "n8n",
-    "puppeteer",
+    "cloudflare",
+    "workers",
+    "browser-rendering",
     "scraper",
-    "web scraping",
     "automation"
   ],
-  "author": "Your Name/Organization",
+  "author": "enginalemdar",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "dotenv": "^16.3.1",
-    "puppeteer-core": "^22.0.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "@sparticuz/chromium": "^123.0.1"
+    "@cloudflare/puppeteer": "^1.0.6"
+  },
+  "devDependencies": {
+    "wrangler": "^4.11.1"
   }
 }

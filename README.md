@@ -1,18 +1,69 @@
-# scraper
+# scraper-worker
 
-Bu, n8n iş akışlarıyla entegre olmak üzere tasarlanmış basit bir Node.js Express uygulamasıdır. Belirtilen bir URL'ye giderek Puppeteer (headless Chrome/Chromium) kullanarak sayfanın metin içeriğini çeker. Bu, standart HTTP isteklerinin karşılaştığı anti-bot (Cloudflare vb.) korumalarını aşmaya yardımcı olabilir.
+Cloudflare Worker uzerinde calisan bir scraping API'si.
+`POST /scrape` ile verilen URL'i Cloudflare Browser Rendering (headless Chromium) uzerinden acip metin ve ilgili linkleri dondurur.
+Browser Rendering anlik olarak kullanilamazsa otomatik olarak `fetch` tabanli fallback ile devam eder.
 
-Çekilen metin içeriği daha sonra n8n iş akışında bir AI modeli tarafından analiz edilmek üzere kullanılır.
+## Mimari
+
+- Runtime: Cloudflare Workers
+- Browser: Cloudflare Browser Rendering
+- Endpointler:
+  - `GET /` saglik kontrolu
+  - `POST /scrape` body: `{ "url": "https://...", "selector": ".optional" }`
+    - `selector` verildiginde browser mode gerekir. Browser mode basarisiz olursa endpoint hata doner.
+    - `selector` verilmediginde browser mode basarisiz olursa fallback mode devreye girer.
 
 ## Kurulum
 
-1.  Bu repoyu klonlayın: `git clone <repo-url>`
-2.  Proje dizinine gidin: `cd n8n-puppeteer-scraper-agent`
-3.  Bağımlılıkları yükleyin: `npm install`
+```bash
+npm install
+```
 
-## Kullanım
+## Cloudflare Hazirlik
 
-Uygulamayı çalıştırmak için:
+1. Cloudflare hesabinda **Browser Rendering** ozelligini etkinlestirin.
+2. Lokal ortamda Cloudflare kimlik dogrulamasi yapin:
 
 ```bash
-npm start
+npx wrangler login
+npx wrangler whoami
+```
+
+## Gelistirme
+
+```bash
+npm run dev
+```
+
+Not: Browser binding nedeniyle local emulation yerine `--remote` kullanilir.
+
+## Deploy
+
+```bash
+npm run deploy
+```
+
+Deploy sonrasi Worker URL'inize su sekilde istek atabilirsiniz:
+
+```bash
+curl -X POST "https://<worker-subdomain>/scrape" \
+  -H "content-type: application/json" \
+  -d '{"url":"https://example.com"}'
+```
+
+## Yanit Ornegi
+
+```json
+{
+  "success": true,
+  "url": "https://example.com/",
+  "content": "...",
+  "relevantLinks": [
+    {
+      "url": "https://example.com/about",
+      "text": "About"
+    }
+  ]
+}
+```
